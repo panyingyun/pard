@@ -1,4 +1,5 @@
 #include "pard.h"
+#include <stdlib.h>
 #include <mpi.h>
 
 /**

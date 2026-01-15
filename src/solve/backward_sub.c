@@ -82,15 +82,26 @@ int pard_backward_substitution_ldlt(const pard_factors_t *factors,
         while (i < n) {
             if (factors->pivot_type[i] == 2 && i < n - 1) {
                 /* 2x2主元块 */
-                double d11 = factors->d_values[i];
-                double d22 = factors->d_values[i + 1];
-                /* 对于2x2块，D的存储方式需要根据实际实现调整 */
-                z_rhs[i] = d11 * y_rhs[i];
-                z_rhs[i + 1] = d22 * y_rhs[i + 1];
+                /* 在LDLT分解中，对于2x2块，d_values存储的是D矩阵的逆的对角元素 */
+                /* D_inv = [d11 0; 0 d22]，其中d11 = a22/det, d22 = a11/det */
+                /* 所以 z = D_inv * y */
+                z_rhs[i] = factors->d_values[i] * y_rhs[i];
+                z_rhs[i + 1] = factors->d_values[i + 1] * y_rhs[i + 1];
                 i += 2;
             } else {
                 /* 1x1主元 */
-                z_rhs[i] = factors->d_values[i] * y_rhs[i];
+                /* 检查数值稳定性 */
+                double max_d_val = fabs(factors->d_values[i]);
+                for (int j = 0; j < n; j++) {
+                    if (factors->pivot_type[j] == 1 && fabs(factors->d_values[j]) > max_d_val) {
+                        max_d_val = fabs(factors->d_values[j]);
+                    }
+                }
+                if (fabs(factors->d_values[i]) < 1e-12 * max_d_val) {
+                    free(z);
+                    return PARD_ERROR_NUMERICAL;
+                }
+                z_rhs[i] = y_rhs[i] / factors->d_values[i];
                 i++;
             }
         }

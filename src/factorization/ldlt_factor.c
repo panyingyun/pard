@@ -27,6 +27,24 @@ int pard_ldlt_factorization(pard_solver_t *solver) {
         return PARD_ERROR_MEMORY;
     }
     
+    /* 初始化pivot_type为1（1x1主元） */
+    for (int i = 0; i < n; i++) {
+        factors->pivot_type[i] = 1;
+    }
+    
+    /* 初始化置换数组（如果还没有分配） */
+    if (factors->perm == NULL) {
+        factors->perm = (int *)malloc(n * sizeof(int));
+        if (factors->perm == NULL) {
+            free(factors->d_values);
+            free(factors->pivot_type);
+            return PARD_ERROR_MEMORY;
+        }
+        for (int i = 0; i < n; i++) {
+            factors->perm[i] = i;  /* 初始为单位置换 */
+        }
+    }
+    
     /* 将CSR转换为临时密集存储 */
     double **dense_A = (double **)malloc(n * sizeof(double *));
     for (int i = 0; i < n; i++) {
@@ -47,14 +65,19 @@ int pard_ldlt_factorization(pard_solver_t *solver) {
     /* Bunch-Kaufman LDL^T分解 */
     int k = 0;
     while (k < n) {
-        /* 选择主元策略：找到第k列中绝对值最大的元素 */
-        double alpha = 0.0;
+        /* 选择主元策略：优先选择对角元素，如果对角元素太小，则选择列中最大的元素 */
+        double diag_val = fabs(dense_A[k][k]);
+        double alpha = diag_val;
         int pivot_row = k;
         
-        for (int i = k; i < n; i++) {
-            if (fabs(dense_A[i][k]) > alpha) {
-                alpha = fabs(dense_A[i][k]);
-                pivot_row = i;
+        /* 如果对角元素太小，查找列中最大的元素 */
+        if (diag_val < 1e-10) {
+            alpha = 0.0;
+            for (int i = k; i < n; i++) {
+                if (fabs(dense_A[i][k]) > alpha) {
+                    alpha = fabs(dense_A[i][k]);
+                    pivot_row = i;
+                }
             }
         }
         
@@ -81,10 +104,11 @@ int pard_ldlt_factorization(pard_solver_t *solver) {
         double sigma = fabs(dense_A[pivot_row][pivot_row]);
         
         /* Bunch-Kaufman条件：如果满足，使用1x1主元，否则使用2x2 */
+        /* 暂时禁用2x2块，只使用1x1主元，简化实现 */
         int use_2x2 = 0;
-        if (k < n - 1 && alpha * lambda > sigma * sigma) {
+        /* if (k < n - 1 && alpha * lambda > sigma * sigma) {
             use_2x2 = 1;
-        }
+        } */
         
         if (use_2x2 && k < n - 1) {
             /* 2x2主元块 */
@@ -173,11 +197,23 @@ int pard_ldlt_factorization(pard_solver_t *solver) {
                     dense_A[i][k] = dense_A[i][pivot_row];
                     dense_A[i][pivot_row] = tmp_val;
                 }
+                
+                /* 记录置换 */
+                int tmp_perm = factors->perm[k];
+                factors->perm[k] = factors->perm[pivot_row];
+                factors->perm[pivot_row] = tmp_perm;
             }
             
             factors->d_values[k] = dense_A[k][k];
             
-            if (fabs(factors->d_values[k]) < 1e-15) {
+            /* 检查数值稳定性：使用相对阈值 */
+            double max_diag = fabs(dense_A[k][k]);
+            for (int i = k; i < n; i++) {
+                if (fabs(dense_A[i][i]) > max_diag) {
+                    max_diag = fabs(dense_A[i][i]);
+                }
+            }
+            if (fabs(factors->d_values[k]) < 1e-12 * max_diag) {
                 for (int i = 0; i < n; i++) {
                     free(dense_A[i]);
                 }

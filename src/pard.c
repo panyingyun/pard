@@ -101,6 +101,7 @@ int pardiso_symbolic(pard_solver_t *solver, pard_csr_matrix_t *matrix) {
     }
     
     solver->factors = factors;
+    solver->factors->matrix_type = solver->matrix_type;  /* 设置正确的矩阵类型 */
     solver->fill_in_nnz = factors->nnz;
     
     free(parent);

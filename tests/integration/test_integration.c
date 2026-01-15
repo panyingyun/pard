@@ -96,6 +96,9 @@ int test_solve_flow(int n, pard_matrix_type_t mtype, int use_mpi) {
     /* 数值分解 */
     err = pardiso_factor(solver);
     if (err != PARD_SUCCESS) {
+        if (rank == 0 || !use_mpi) {
+            printf("  ERROR: Factorization failed with error code: %d\n", err);
+        }
         pardiso_cleanup(&solver);
         return err;
     }

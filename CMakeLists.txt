@@ -62,7 +62,7 @@ set(ALL_SOURCES
 
 # 创建库
 add_library(pard STATIC ${ALL_SOURCES})
-target_link_libraries(pard PUBLIC MPI::MPI_C)
+target_link_libraries(pard PUBLIC MPI::MPI_C m)
 
 # 编译选项
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
