@@ -93,4 +93,7 @@ if(BUILD_TESTS)
     # MUMPS对比程序
     add_executable(mumps_compare tests/benchmark/mumps_compare.c)
     target_link_libraries(mumps_compare pard)
+    
+    # 矩阵生成工具
+    add_executable(create_matrix tests/benchmark/create_matrix.c)
 endif()

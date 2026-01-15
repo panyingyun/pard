@@ -1,0 +1,2 @@
+Matrix_Size,Num_Cores,Solver,Analysis_Time,Factor_Time,Solve_Time,Total_Time
+10,1,PARD,6e-06,3e-06,5e-06,1.4000000000000001e-05

@@ -10,6 +10,32 @@ import csv
 import time
 import re
 
+def generate_matrix(n, sparsity, output_file):
+    """使用C程序生成矩阵"""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(os.path.dirname(script_dir))
+    # create_matrix可能在build/或build/bin/下
+    create_matrix_bin = os.path.join(project_root, "build/create_matrix")
+    if not os.path.exists(create_matrix_bin):
+        create_matrix_bin = os.path.join(project_root, "build/bin/create_matrix")
+    
+    if not os.path.exists(create_matrix_bin):
+        print(f"Error: create_matrix binary not found. Please build the project first.")
+        return False
+    
+    cmd = [create_matrix_bin, str(n), str(sparsity), output_file]
+    try:
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True, cwd=project_root)
+        if result.stdout:
+            print(result.stdout.strip())
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"Error generating matrix {n}x{n}: {e.stderr if e.stderr else e}")
+        return False
+    except FileNotFoundError:
+        print(f"Error: create_matrix binary not found")
+        return False
+
 def run_benchmark(matrix_file, num_cores, matrix_type=11):
     """
     运行PARD benchmark
@@ -63,15 +89,21 @@ def main():
     project_root = os.path.dirname(os.path.dirname(script_dir))
     os.chdir(project_root)
     
-    # 矩阵大小
-    matrix_sizes = [10, 1000, 100000]
+    # 矩阵大小和对应的稀疏度
+    matrix_configs = [
+        (10, 0.3),      # 10x10: 30%稀疏度
+        (1000, 0.01),   # 1000x1000: 1%稀疏度
+        (100000, 0.001) # 100000x100000: 0.1%稀疏度（非常稀疏）
+    ]
     
     # 核心数
     num_cores_list = [1, 2, 4]
     
-    # 创建结果目录
+    # 创建结果目录和矩阵目录
     results_dir = "tests/benchmark/perf_results"
+    matrix_dir = "tests/benchmark/test_matrices"
     os.makedirs(results_dir, exist_ok=True)
+    os.makedirs(matrix_dir, exist_ok=True)
     
     results_file = os.path.join(results_dir, "performance_results.csv")
     
@@ -79,7 +111,17 @@ def main():
     print("=" * 70)
     print("Generating test matrices...")
     print("=" * 70)
-    subprocess.run(["python3", "tests/benchmark/create_perf_matrices.py"], check=True)
+    
+    for n, sparsity in matrix_configs:
+        matrix_file = f"{matrix_dir}/perf_matrix_{n}x{n}.mtx"
+        if not os.path.exists(matrix_file):
+            print(f"Generating {n}x{n} matrix (sparsity: {sparsity})... ", end='', flush=True)
+            if generate_matrix(n, sparsity, matrix_file):
+                print("Done")
+            else:
+                print("Failed")
+        else:
+            print(f"Matrix {n}x{n} already exists, skipping generation")
     
     print("\n" + "=" * 70)
     print("Running Performance Tests")
@@ -92,14 +134,14 @@ def main():
                         'Factor_Time', 'Solve_Time', 'Total_Time'])
     
     # 测试每个矩阵大小
-    for size in matrix_sizes:
-        matrix_file = f"tests/benchmark/test_matrices/perf_matrix_{size}x{size}.mtx"
+    for n, sparsity in matrix_configs:
+        matrix_file = f"{matrix_dir}/perf_matrix_{n}x{n}.mtx"
         
         if not os.path.exists(matrix_file):
-            print(f"\nWarning: Matrix file {matrix_file} not found, skipping size {size}")
+            print(f"\nWarning: Matrix file {matrix_file} not found, skipping size {n}")
             continue
         
-        print(f"\nMatrix Size: {size}x{size}")
+        print(f"\nMatrix Size: {n}x{n}")
         print("-" * 70)
         
         # 测试每个核心数
@@ -118,7 +160,7 @@ def main():
                 # 写入结果
                 with open(results_file, 'a', newline='') as f:
                     writer = csv.writer(f)
-                    writer.writerow([size, num_cores, 'PARD', analysis_time, 
+                    writer.writerow([n, num_cores, 'PARD', analysis_time, 
                                    factor_time, solve_time, total_time])
             else:
                 print("FAILED")
