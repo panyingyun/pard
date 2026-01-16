@@ -96,4 +96,15 @@ if(BUILD_TESTS)
     
     # 矩阵生成工具
     add_executable(create_matrix tests/benchmark/create_matrix.c)
+    add_executable(create_rectangular_matrix tests/benchmark/create_rectangular_matrix.c)
+    
+    # MUMPS基准测试
+    find_library(MUMPS_LIB dmumps PATHS /usr/lib /usr/local/lib)
+    if(MUMPS_LIB)
+        add_executable(mumps_benchmark tests/benchmark/mumps_benchmark.c)
+        target_link_libraries(mumps_benchmark ${MUMPS_LIB} MPI::MPI_C m)
+        message(STATUS "MUMPS library found: ${MUMPS_LIB}")
+    else()
+        message(WARNING "MUMPS library not found, mumps_benchmark will not be built")
+    endif()
 endif()
