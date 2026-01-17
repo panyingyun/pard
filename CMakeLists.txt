@@ -99,12 +99,67 @@ if(BUILD_TESTS)
     add_executable(create_rectangular_matrix tests/benchmark/create_rectangular_matrix.c)
     
     # MUMPS基准测试
-    find_library(MUMPS_LIB dmumps PATHS /usr/lib /usr/local/lib)
-    if(MUMPS_LIB)
+    # 优先使用本地编译的MUMPS库（使用OpenBLAS）
+    set(MUMPS_ROOT_DIR "${CMAKE_SOURCE_DIR}/MUMPS/MUMPS_5.8.1")
+    set(MUMPS_LIB_DIR "${MUMPS_ROOT_DIR}/lib")
+    set(MUMPS_INC_DIR "${MUMPS_ROOT_DIR}/include")
+    set(PORD_LIB_DIR "${MUMPS_ROOT_DIR}/PORD/lib")
+    
+    # 检查本地编译的MUMPS库是否存在
+    if(EXISTS "${MUMPS_LIB_DIR}/libdmumps.a" AND EXISTS "${MUMPS_LIB_DIR}/libmumps_common.a")
+        message(STATUS "Using locally compiled MUMPS with OpenBLAS")
+        message(STATUS "MUMPS library directory: ${MUMPS_LIB_DIR}")
+        
         add_executable(mumps_benchmark tests/benchmark/mumps_benchmark.c)
-        target_link_libraries(mumps_benchmark ${MUMPS_LIB} MPI::MPI_C m)
-        message(STATUS "MUMPS library found: ${MUMPS_LIB}")
+        target_include_directories(mumps_benchmark PRIVATE ${MUMPS_INC_DIR})
+        target_link_directories(mumps_benchmark PRIVATE ${MUMPS_LIB_DIR} ${PORD_LIB_DIR})
+        # MUMPS requires MPI Fortran support - link using same approach as MUMPS Makefile
+        # Note: MUMPS was compiled with -fopenmp and mpif90 which includes Fortran MPI bindings
+        find_package(OpenMP REQUIRED)
+        target_link_libraries(mumps_benchmark 
+            dmumps
+            smumps
+            mumps_common
+            pord
+            scalapack-openmpi
+            lapack
+            openblas
+            pthread
+            gfortran
+            OpenMP::OpenMP_C
+            gomp
+            /usr/lib/x86_64-linux-gnu/libmpi_mpifh.so
+            MPI::MPI_C
+            m)
+        
+        # Add MPI Fortran library (mpi_mpifh) as MUMPS was compiled with mpif90
+        # Check multiple possible locations
+        find_library(MPI_MPIFH_LIB 
+            NAMES mpi_mpifh
+            PATHS 
+                /usr/lib/x86_64-linux-gnu/openmpi
+                /usr/lib/x86_64-linux-gnu
+                /usr/local/lib
+            NO_DEFAULT_PATH)
+        if(MPI_MPIFH_LIB)
+            target_link_libraries(mumps_benchmark ${MPI_MPIFH_LIB})
+        else()
+            # Fallback: try to link using mpif90 wrapper approach
+            # We'll use linker flags to add OpenMPI library directory
+            get_filename_component(MPI_C_LIB_DIR ${MPI_C_LIBRARIES} DIRECTORY)
+            target_link_directories(mumps_benchmark PRIVATE ${MPI_C_LIB_DIR})
+            target_link_libraries(mumps_benchmark mpi_mpifh)
+        endif()
+        message(STATUS "MUMPS benchmark linked with local MUMPS libraries (OpenBLAS)")
     else()
-        message(WARNING "MUMPS library not found, mumps_benchmark will not be built")
+        # Fallback to system MUMPS
+        find_library(MUMPS_LIB dmumps PATHS /usr/lib /usr/local/lib)
+        if(MUMPS_LIB)
+            add_executable(mumps_benchmark tests/benchmark/mumps_benchmark.c)
+            target_link_libraries(mumps_benchmark ${MUMPS_LIB} MPI::MPI_C m)
+            message(STATUS "MUMPS library found: ${MUMPS_LIB} (system)")
+        else()
+            message(WARNING "MUMPS library not found, mumps_benchmark will not be built")
+        endif()
     endif()
 endif()

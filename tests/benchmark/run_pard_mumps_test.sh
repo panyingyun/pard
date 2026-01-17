@@ -13,7 +13,7 @@ MATRIX_CONFIGS=(
     "10000x10000 tests/benchmark/test_matrices/perf_matrix_10000x10000.mtx"
 )
 
-CORES=(1 2 4)
+CORES=(1 2 4 8)
 
 echo "=========================================="
 echo "  PARD vs MUMPS Performance Test"
@@ -46,13 +46,17 @@ for config in "${MATRIX_CONFIGS[@]}"; do
         
         OUTPUT=$(timeout 300 mpirun -np $cores ./build/bin/benchmark "$matrix_file" 11 1 2>&1)
         
-        A=$(echo "$OUTPUT" | grep -oP 'Analysis time:\s+\K[\d.]+' || echo "0")
-        F=$(echo "$OUTPUT" | grep -oP 'Factorization time:\s+\K[\d.]+' || echo "0")
-        S=$(echo "$OUTPUT" | grep -oP 'Solve time:\s+\K[\d.]+' || echo "0")
-        T=$(echo "$OUTPUT" | grep -oP 'Total time:\s+\K[\d.]+' || echo "0")
+        # 提取时间（匹配"Analysis time:      0.002997 seconds"格式）
+        A=$(echo "$OUTPUT" | grep -i "Analysis time" | grep -oE '[0-9]+\.[0-9]+' | head -1 || echo "0")
+        F=$(echo "$OUTPUT" | grep -i "Factorization time" | grep -oE '[0-9]+\.[0-9]+' | head -1 || echo "0")
+        S=$(echo "$OUTPUT" | grep -i "Solve time" | grep -oE '[0-9]+\.[0-9]+' | head -1 || echo "0")
+        T=$(echo "$OUTPUT" | grep -i "Total time" | grep -oE '[0-9]+\.[0-9]+' | head -1 || echo "0")
         
-        if [ "$T" = "0" ] && [ "$A" != "0" ]; then
-            T=$(echo "$A + $F + $S" | bc 2>/dev/null || echo "0")
+        # 如果总时间为0或空，且其他时间不为0，计算总和
+        if [ -z "$T" ] || [ "$T" = "0" ] || [ "$T" = "0.0" ]; then
+            if [ -n "$A" ] && [ -n "$F" ] && [ -n "$S" ] && [ "$A" != "0" ]; then
+                T=$(echo "$A + $F + $S" | bc 2>/dev/null || echo "0")
+            fi
         fi
         
         if [ "$T" != "0" ]; then
@@ -71,13 +75,17 @@ for config in "${MATRIX_CONFIGS[@]}"; do
             
             OUTPUT=$(timeout 300 mpirun -np $cores ./build/mumps_benchmark "$matrix_file" 2>&1)
             
-            A=$(echo "$OUTPUT" | grep -oP 'Analysis time:\s+\K[\d.]+' || echo "0")
-            F=$(echo "$OUTPUT" | grep -oP 'Factorization time:\s+\K[\d.]+' || echo "0")
-            S=$(echo "$OUTPUT" | grep -oP 'Solve time:\s+\K[\d.]+' || echo "0")
-            T=$(echo "$OUTPUT" | grep -oP 'Total time:\s+\K[\d.]+' || echo "0")
+            # 提取时间（匹配"Analysis time:      0.002997 seconds"格式）
+            A=$(echo "$OUTPUT" | grep -i "Analysis time" | grep -oE '[0-9]+\.[0-9]+' | head -1 || echo "0")
+            F=$(echo "$OUTPUT" | grep -i "Factorization time" | grep -oE '[0-9]+\.[0-9]+' | head -1 || echo "0")
+            S=$(echo "$OUTPUT" | grep -i "Solve time" | grep -oE '[0-9]+\.[0-9]+' | head -1 || echo "0")
+            T=$(echo "$OUTPUT" | grep -i "Total time" | grep -oE '[0-9]+\.[0-9]+' | head -1 || echo "0")
             
-            if [ "$T" = "0" ] && [ "$A" != "0" ]; then
-                T=$(echo "$A + $F + $S" | bc 2>/dev/null || echo "0")
+            # 如果总时间为0或空，且其他时间不为0，计算总和
+            if [ -z "$T" ] || [ "$T" = "0" ] || [ "$T" = "0.0" ]; then
+                if [ -n "$A" ] && [ -n "$F" ] && [ -n "$S" ] && [ "$A" != "0" ]; then
+                    T=$(echo "$A + $F + $S" | bc 2>/dev/null || echo "0")
+                fi
             fi
             
             if [ "$T" != "0" ]; then

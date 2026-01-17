@@ -1,6 +1,7 @@
 #include "pard.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <assert.h>
 #include <mpi.h>
 
@@ -23,13 +24,62 @@ void test_csr_create_free() {
 /* 测试矩阵读取（需要测试矩阵文件） */
 void test_matrix_read() {
     /* 使用基准测试目录中的测试矩阵 */
+    /* 从项目根目录或build目录都能找到的路径 */
     const char *test_matrix = "tests/benchmark/test_matrices/test_simple.mtx";
+    char abs_path[1024];
+    
+    /* 尝试多个可能的路径 */
+    FILE *test_file = NULL;
+    strcpy(abs_path, "");  /* 初始化为空 */
+    
+    /* 首先尝试从build/bin目录查找 */
+    const char *alt_path = "../../tests/benchmark/test_matrices/test_simple.mtx";
+    printf("  Trying path: %s\n", alt_path);
+    if ((test_file = fopen(alt_path, "r")) != NULL) {
+        fclose(test_file);
+        strcpy(abs_path, alt_path);
+        printf("  Found file at: %s\n", abs_path);
+    } else {
+        printf("  Path %s not found, trying: %s\n", alt_path, test_matrix);
+        /* 尝试相对路径（从项目根目录） */
+        if ((test_file = fopen(test_matrix, "r")) != NULL) {
+            fclose(test_file);
+            strcpy(abs_path, test_matrix);
+            printf("  Found file at: %s\n", abs_path);
+        } else {
+            /* 尝试绝对路径（从项目根目录） */
+            const char *abs_alt = "/home/yypan/panyingyun/pard/tests/benchmark/test_matrices/test_simple.mtx";
+            printf("  Trying absolute path: %s\n", abs_alt);
+            if ((test_file = fopen(abs_alt, "r")) != NULL) {
+                fclose(test_file);
+                strcpy(abs_path, abs_alt);
+                printf("  Found file at: %s\n", abs_path);
+            } else {
+                printf("test_matrix_read: FAILED (cannot find test matrix file, tried: %s, %s, %s)\n", 
+                       alt_path, test_matrix, abs_alt);
+                return;
+            }
+        }
+    }
     
     pard_csr_matrix_t *matrix = NULL;
-    int err = pard_matrix_read_mtx(&matrix, test_matrix);
+    printf("  Attempting to read matrix from: %s\n", abs_path);
+    int err = pard_matrix_read_mtx(&matrix, abs_path);
     
     if (err != PARD_SUCCESS) {
-        printf("test_matrix_read: FAILED (error code: %d)\n", err);
+        printf("test_matrix_read: FAILED (error code: %d, file: %s)\n", err, abs_path);
+        /* 验证文件是否真的存在且可读 */
+        FILE *test = fopen(abs_path, "r");
+        if (test == NULL) {
+            printf("  File cannot be opened: %s\n", abs_path);
+        } else {
+            printf("  File exists and can be opened, but matrix read failed\n");
+            char buf[256];
+            if (fgets(buf, sizeof(buf), test) != NULL) {
+                printf("  First line of file: %s", buf);
+            }
+            fclose(test);
+        }
         return;
     }
     

@@ -18,8 +18,9 @@ int pard_matrix_read_mtx(pard_csr_matrix_t **matrix, const char *filename) {
     }
     
     char line[1024];
-    int nrows, ncols, nnz;
+    int nrows = 0, ncols = 0, nnz = 0;
     int symmetric = 0;
+    int header_found = 0;
     
     /* 读取头部 */
     while (fgets(line, sizeof(line), fp)) {
@@ -31,8 +32,15 @@ int pard_matrix_read_mtx(pard_csr_matrix_t **matrix, const char *filename) {
         }
         
         if (sscanf(line, "%d %d %d", &nrows, &ncols, &nnz) == 3) {
+            header_found = 1;
             break;
         }
+    }
+    
+    /* 如果没有找到头部，或者不是方阵，返回错误 */
+    if (!header_found || nrows <= 0 || ncols <= 0 || nnz < 0) {
+        fclose(fp);
+        return PARD_ERROR_INVALID_INPUT;
     }
     
     if (nrows != ncols) {
