@@ -220,14 +220,11 @@ int pardiso_cleanup(pard_solver_t **solver) {
     
     pard_solver_t *s = *solver;
     
-    /* 只有当matrix确实由solver管理时才释放 */
-    /* 注意：matrix可能由外部传入，但apply_permutation会修改其内部结构 */
-    /* 这里假设matrix由solver管理，在benchmark.c中确实如此 */
-    if (s->matrix != NULL) {
-        /* 直接调用pard_csr_free，它内部已经有NULL检查 */
-        pard_csr_free(&(s->matrix));
-        s->matrix = NULL;
-    }
+    /* 注意：matrix由外部传入，不应在cleanup中释放 */
+    /* apply_permutation会修改matrix的内部结构，但matrix本身由调用者管理 */
+    /* 如果需要在cleanup中释放，调用者应该在cleanup之后手动释放 */
+    /* 这里我们不释放matrix，只清理solver自己的资源 */
+    s->matrix = NULL;
     
     if (s->perm != NULL) {
         free(s->perm);

@@ -57,6 +57,7 @@ int run_benchmark(const char *matrix_file, pard_matrix_type_t mtype,
     
     if (err != PARD_SUCCESS) {
         pardiso_cleanup(&solver);
+        pard_csr_free(&matrix);  /* 释放matrix，因为pardiso_cleanup不再释放它 */
         return err;
     }
     
@@ -68,6 +69,7 @@ int run_benchmark(const char *matrix_file, pard_matrix_type_t mtype,
     
     if (err != PARD_SUCCESS) {
         pardiso_cleanup(&solver);
+        pard_csr_free(&matrix);  /* 释放matrix，因为pardiso_cleanup不再释放它 */
         return err;
     }
     
@@ -100,6 +102,7 @@ int run_benchmark(const char *matrix_file, pard_matrix_type_t mtype,
         free(rhs);
         free(sol);
         pardiso_cleanup(&solver);
+        pard_csr_free(&matrix);  /* 释放matrix，因为pardiso_cleanup不再释放它 */
         matrix = NULL;  /* 标记已清理，避免后续访问 */
         return err;
     }
@@ -136,8 +139,11 @@ int run_benchmark(const char *matrix_file, pard_matrix_type_t mtype,
     free(rhs);
     free(sol);
     
-    /* 清理求解器（这会释放matrix） */
+    /* 清理求解器（不释放matrix，因为matrix由benchmark管理） */
     pardiso_cleanup(&solver);
+    
+    /* 释放matrix（由benchmark管理） */
+    pard_csr_free(&matrix);
     matrix = NULL;  /* 标记已清理，避免后续访问 */
     
     return PARD_SUCCESS;
