@@ -49,17 +49,24 @@ int pard_csr_free(pard_csr_matrix_t **matrix) {
         return PARD_ERROR_INVALID_INPUT;
     }
     
-    if ((*matrix)->row_ptr != NULL) {
-        free((*matrix)->row_ptr);
+    pard_csr_matrix_t *m = *matrix;
+    
+    /* 安全释放各个字段，避免重复释放 */
+    if (m->row_ptr != NULL) {
+        free(m->row_ptr);
+        m->row_ptr = NULL;
     }
-    if ((*matrix)->col_idx != NULL) {
-        free((*matrix)->col_idx);
+    if (m->col_idx != NULL) {
+        free(m->col_idx);
+        m->col_idx = NULL;
     }
-    if ((*matrix)->values != NULL) {
-        free((*matrix)->values);
+    if (m->values != NULL) {
+        free(m->values);
+        m->values = NULL;
     }
     
-    free(*matrix);
+    /* 释放矩阵结构体本身 */
+    free(m);
     *matrix = NULL;
     
     return PARD_SUCCESS;

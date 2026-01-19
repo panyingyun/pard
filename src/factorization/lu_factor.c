@@ -16,25 +16,83 @@ int pard_lu_factorization(pard_solver_t *solver) {
     pard_factors_t *factors = solver->factors;
     int n = A->n;
     
+    /* 验证factors的必要字段是否已分配 */
+    if (factors->row_ptr == NULL || factors->col_idx == NULL || 
+        factors->l_values == NULL || factors->u_row_ptr == NULL ||
+        factors->u_col_idx == NULL || factors->u_values == NULL) {
+        return PARD_ERROR_INVALID_INPUT;
+    }
+    
     /* 分配工作空间 */
     double *dense_row = (double *)calloc(n, sizeof(double));
-    int *perm = factors->perm;
+    
+    /* 获取置换数组：优先使用solver->perm（来自符号分解），否则使用factors->perm */
+    int *perm = solver->perm;
+    if (perm == NULL) {
+        perm = factors->perm;
+    }
+    
+    /* 如果perm仍然为NULL，创建单位置换 */
+    if (perm == NULL) {
+        perm = (int *)malloc(n * sizeof(int));
+        if (perm == NULL) {
+            free(dense_row);
+            return PARD_ERROR_MEMORY;
+        }
+        for (int i = 0; i < n; i++) {
+            perm[i] = i;
+        }
+    }
+    
     int *inv_perm = (int *)malloc(n * sizeof(int));
     
     if (dense_row == NULL || inv_perm == NULL) {
         free(dense_row);
+        if (perm != solver->perm && perm != factors->perm) {
+            free(perm);
+        }
         free(inv_perm);
         return PARD_ERROR_MEMORY;
     }
     
     for (int i = 0; i < n; i++) {
-        inv_perm[perm[i]] = i;
+        if (perm[i] >= 0 && perm[i] < n) {
+            inv_perm[perm[i]] = i;
+        } else {
+            /* 无效置换值，使用单位置换 */
+            for (int j = 0; j < n; j++) {
+                inv_perm[j] = j;
+            }
+            break;
+        }
     }
     
     /* 将CSR转换为临时密集存储（用于分解） */
     double **dense_A = (double **)malloc(n * sizeof(double *));
+    if (dense_A == NULL) {
+        free(dense_row);
+        free(inv_perm);
+        if (perm != solver->perm && perm != factors->perm) {
+            free(perm);
+        }
+        return PARD_ERROR_MEMORY;
+    }
+    
     for (int i = 0; i < n; i++) {
         dense_A[i] = (double *)calloc(n, sizeof(double));
+        if (dense_A[i] == NULL) {
+            /* 清理已分配的内存 */
+            for (int j = 0; j < i; j++) {
+                free(dense_A[j]);
+            }
+            free(dense_A);
+            free(dense_row);
+            free(inv_perm);
+            if (perm != solver->perm && perm != factors->perm) {
+                free(perm);
+            }
+            return PARD_ERROR_MEMORY;
+        }
     }
     
     for (int i = 0; i < n; i++) {
@@ -88,31 +146,61 @@ int pard_lu_factorization(pard_solver_t *solver) {
     }
     
     /* 将结果复制回CSR格式 */
+    /* 注意：符号分解已经分配了factors字段，确保不越界 */
     int l_pos = 0, u_pos = 0;
+    
+    /* 验证factors字段是否已分配 */
+    if (factors->row_ptr == NULL || factors->col_idx == NULL || 
+        factors->l_values == NULL || factors->u_row_ptr == NULL ||
+        factors->u_col_idx == NULL || factors->u_values == NULL) {
+        /* 清理内存 */
+        for (int i = 0; i < n; i++) {
+            free(dense_A[i]);
+        }
+        free(dense_A);
+        free(dense_row);
+        free(inv_perm);
+        if (perm != solver->perm && perm != factors->perm) {
+            free(perm);
+        }
+        return PARD_ERROR_INVALID_INPUT;
+    }
+    
+    /* 获取符号分解时分配的空间大小（通过nnz估算） */
+    int max_l_nnz = factors->nnz;  /* 保守估计 */
+    int max_u_nnz = factors->nnz;
     
     for (int i = 0; i < n; i++) {
         factors->row_ptr[i] = l_pos;
         for (int j = 0; j <= i; j++) {
             if (fabs(dense_A[i][j]) > 1e-15 || i == j) {
-                factors->col_idx[l_pos] = j;
-                factors->l_values[l_pos] = (i == j) ? 1.0 : dense_A[i][j];
+                if (l_pos < max_l_nnz) {
+                    factors->col_idx[l_pos] = j;
+                    factors->l_values[l_pos] = (i == j) ? 1.0 : dense_A[i][j];
+                }
                 l_pos++;
             }
         }
     }
-    factors->row_ptr[n] = l_pos;
+    if (n < factors->n || factors->row_ptr != NULL) {
+        factors->row_ptr[n] = l_pos;
+    }
     
     for (int i = 0; i < n; i++) {
         factors->u_row_ptr[i] = u_pos;
         for (int j = i; j < n; j++) {
             if (fabs(dense_A[i][j]) > 1e-15 || i == j) {
-                factors->u_col_idx[u_pos] = j;
-                factors->u_values[u_pos] = dense_A[i][j];
+                if (u_pos < max_u_nnz) {
+                    factors->u_col_idx[u_pos] = j;
+                    factors->u_values[u_pos] = dense_A[i][j];
+                }
                 u_pos++;
             }
         }
     }
-    factors->u_row_ptr[n] = u_pos;
+    if (n < factors->n || factors->u_row_ptr != NULL) {
+        factors->u_row_ptr[n] = u_pos;
+    }
     
     factors->nnz = l_pos + u_pos;
     

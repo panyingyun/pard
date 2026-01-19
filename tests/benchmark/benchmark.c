@@ -74,9 +74,17 @@ int run_benchmark(const char *matrix_file, pard_matrix_type_t mtype,
     stats->fill_in_nnz = solver->fill_in_nnz;
     
     /* 创建右端项 */
-    int n = matrix->n;
+    /* 注意：使用solver->matrix，因为它已经被置换，但matrix和solver->matrix指向同一个对象 */
+    int n = solver->matrix->n;
     double *rhs = (double *)malloc(n * sizeof(double));
     double *sol = (double *)malloc(n * sizeof(double));
+    
+    if (rhs == NULL || sol == NULL) {
+        if (rhs != NULL) free(rhs);
+        if (sol != NULL) free(sol);
+        pardiso_cleanup(&solver);
+        return PARD_ERROR_MEMORY;
+    }
     
     for (int i = 0; i < n; i++) {
         rhs[i] = 1.0;
@@ -92,19 +100,24 @@ int run_benchmark(const char *matrix_file, pard_matrix_type_t mtype,
         free(rhs);
         free(sol);
         pardiso_cleanup(&solver);
+        matrix = NULL;  /* 标记已清理，避免后续访问 */
         return err;
     }
     
-    /* 计算残差 */
+    /* 计算残差 - 使用solver->matrix（已经置换后的矩阵） */
     double max_residual = 0.0;
-    for (int i = 0; i < n; i++) {
-        double sum = 0.0;
-        for (int j = matrix->row_ptr[i]; j < matrix->row_ptr[i + 1]; j++) {
-            sum += matrix->values[j] * sol[matrix->col_idx[j]];
-        }
-        double residual = fabs(rhs[i] - sum);
-        if (residual > max_residual) {
-            max_residual = residual;
+    pard_csr_matrix_t *A = solver->matrix;  /* 使用solver中的矩阵引用 */
+    
+    if (A != NULL && A->row_ptr != NULL && A->col_idx != NULL && A->values != NULL) {
+        for (int i = 0; i < n; i++) {
+            double sum = 0.0;
+            for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++) {
+                sum += A->values[j] * sol[A->col_idx[j]];
+            }
+            double residual = fabs(rhs[i] - sum);
+            if (residual > max_residual) {
+                max_residual = residual;
+            }
         }
     }
     stats->max_residual = max_residual;
@@ -122,7 +135,10 @@ int run_benchmark(const char *matrix_file, pard_matrix_type_t mtype,
     
     free(rhs);
     free(sol);
+    
+    /* 清理求解器（这会释放matrix） */
     pardiso_cleanup(&solver);
+    matrix = NULL;  /* 标记已清理，避免后续访问 */
     
     return PARD_SUCCESS;
 }

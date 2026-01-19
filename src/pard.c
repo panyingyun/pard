@@ -220,8 +220,14 @@ int pardiso_cleanup(pard_solver_t **solver) {
     
     pard_solver_t *s = *solver;
     
+    /* 只有当matrix确实由solver管理时才释放 */
+    /* 注意：matrix可能由外部传入，但apply_permutation会修改其内部结构 */
+    /* 这里假设matrix由solver管理，在benchmark.c中确实如此 */
     if (s->matrix != NULL) {
-        pard_csr_free(&(s->matrix));
+        /* 检查matrix是否有效（避免重复释放） */
+        if (s->matrix->row_ptr != NULL || s->matrix->col_idx != NULL || s->matrix->values != NULL) {
+            pard_csr_free(&(s->matrix));
+        }
         s->matrix = NULL;
     }
     
