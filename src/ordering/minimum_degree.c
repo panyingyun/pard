@@ -168,16 +168,33 @@ int apply_permutation(pard_csr_matrix_t *matrix, const int *perm, const int *inv
     
     free(row_counts);
     
-    /* 替换原矩阵 */
-    free(matrix->row_ptr);
-    free(matrix->col_idx);
-    free(matrix->values);
+    /* 保存新矩阵的指针（在释放旧指针之前） */
+    int *new_row_ptr = new_matrix->row_ptr;
+    int *new_col_idx = new_matrix->col_idx;
+    double *new_values = new_matrix->values;
+    int new_nnz = new_matrix->nnz;
     
-    matrix->row_ptr = new_matrix->row_ptr;
-    matrix->col_idx = new_matrix->col_idx;
-    matrix->values = new_matrix->values;
-    matrix->nnz = new_matrix->nnz;
+    /* 替换原矩阵：安全释放旧指针 */
+    if (matrix->row_ptr != NULL) {
+        free(matrix->row_ptr);
+    }
+    if (matrix->col_idx != NULL) {
+        free(matrix->col_idx);
+    }
+    if (matrix->values != NULL) {
+        free(matrix->values);
+    }
     
+    /* 复制新矩阵的指针和数据 */
+    matrix->row_ptr = new_row_ptr;
+    matrix->col_idx = new_col_idx;
+    matrix->values = new_values;
+    matrix->nnz = new_nnz;
+    
+    /* 释放新矩阵结构体本身（不释放其内部指针，因为它们已经复制到原矩阵） */
+    new_matrix->row_ptr = NULL;
+    new_matrix->col_idx = NULL;
+    new_matrix->values = NULL;
     free(new_matrix);
     
     return PARD_SUCCESS;

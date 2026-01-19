@@ -1,0 +1,4 @@
+MatrixSize,Cores,AnalysisTime,FactorTime,SolveTime,TotalTime,Status
+100,1,0.0,0.0,0.0,0.0,ERROR
+1000,1,0.0,0.0,0.0,0.0,ERROR
+10000,1,0.0,0.0,0.0,0.0,ERROR
