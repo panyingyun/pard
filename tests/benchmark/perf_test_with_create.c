@@ -5,39 +5,78 @@
 #include <time.h>
 #include <mpi.h>
 
+/* 创建测试矩阵（类似集成测试） */
+int create_test_matrix(pard_csr_matrix_t **matrix, int n, int symmetric) {
+    /* 计算实际非零元素数 */
+    int nnz = 0;
+    for (int i = 0; i < n; i++) {
+        nnz++;  /* 对角线 */
+        if (i < n - 1) nnz++;  /* 下三角 */
+        if (i > 0) nnz++;      /* 上三角 */
+    }
+    
+    int err = pard_csr_create(matrix, n, nnz);
+    if (err != PARD_SUCCESS) {
+        return err;
+    }
+    
+    (*matrix)->is_symmetric = symmetric;
+    
+    int pos = 0;
+    for (int i = 0; i < n; i++) {
+        (*matrix)->row_ptr[i] = pos;
+        
+        /* 对角线元素：使用较大的值使其数值稳定 */
+        (*matrix)->col_idx[pos] = i;
+        (*matrix)->values[pos] = (double)(n + 1);
+        pos++;
+        
+        /* 相邻元素 */
+        if (i < n - 1) {
+            (*matrix)->col_idx[pos] = i + 1;
+            (*matrix)->values[pos] = -1.0;
+            pos++;
+        }
+        
+        if (i > 0) {
+            (*matrix)->col_idx[pos] = i - 1;
+            (*matrix)->values[pos] = -1.0;
+            pos++;
+        }
+    }
+    (*matrix)->row_ptr[n] = pos;
+    (*matrix)->nnz = pos;
+    
+    return PARD_SUCCESS;
+}
+
 /* 性能统计结构 */
 typedef struct {
     double analysis_time;
     double factorization_time;
     double solve_time;
-    size_t peak_memory;
+    double total_time;
     int fill_in_nnz;
     double max_residual;
-} performance_stats_t;
+} perf_stats_t;
 
-/* 运行基准测试 */
-int run_benchmark(const char *matrix_file, pard_matrix_type_t mtype, 
-                  int use_mpi, performance_stats_t *stats) {
-    MPI_Comm comm = use_mpi ? MPI_COMM_WORLD : MPI_COMM_NULL;
+/* 运行性能测试 */
+int run_perf_test(int n, pard_matrix_type_t mtype, perf_stats_t *stats) {
+    MPI_Comm comm = MPI_COMM_WORLD;
     int rank;
-    if (use_mpi) {
-        MPI_Comm_rank(comm, &rank);
-    } else {
-        rank = 0;
-    }
+    MPI_Comm_rank(comm, &rank);
     
-    /* 读取矩阵 */
+    /* 创建测试矩阵 */
     pard_csr_matrix_t *matrix = NULL;
-    int err = pard_matrix_read_mtx(&matrix, matrix_file);
+    int symmetric = (mtype == PARD_MATRIX_TYPE_REAL_SYMMETRIC_INDEF || 
+                     mtype == PARD_MATRIX_TYPE_REAL_SYMMETRIC_POSDEF);
+    int err = create_test_matrix(&matrix, n, symmetric);
     if (err != PARD_SUCCESS) {
-        if (rank == 0) {
-            printf("Error reading matrix file: %s\n", matrix_file);
-        }
         return err;
     }
     
     if (rank == 0) {
-        printf("Matrix: %s\n", matrix_file);
+        printf("Created test matrix: %dx%d\n", n, n);
         pard_matrix_print_info(matrix);
     }
     
@@ -57,7 +96,7 @@ int run_benchmark(const char *matrix_file, pard_matrix_type_t mtype,
     
     if (err != PARD_SUCCESS) {
         pardiso_cleanup(&solver);
-        pard_csr_free(&matrix);  /* 释放matrix，因为pardiso_cleanup不再释放它 */
+        pard_csr_free(&matrix);
         return err;
     }
     
@@ -69,26 +108,18 @@ int run_benchmark(const char *matrix_file, pard_matrix_type_t mtype,
     
     if (err != PARD_SUCCESS) {
         pardiso_cleanup(&solver);
-        pard_csr_free(&matrix);  /* 释放matrix，因为pardiso_cleanup不再释放它 */
+        pard_csr_free(&matrix);
         return err;
     }
     
-    /* 获取fill_in_nnz（如果字段存在） */
+    /* 获取fill_in_nnz */
     if (solver != NULL) {
-        stats->fill_in_nnz = (solver->fill_in_nnz > 0) ? solver->fill_in_nnz : 0;
+        stats->fill_in_nnz = solver->fill_in_nnz;
     } else {
         stats->fill_in_nnz = 0;
     }
     
-    /* 创建右端项 */
-    /* 注意：使用solver->matrix，因为它已经被置换，但matrix和solver->matrix指向同一个对象 */
-    /* 确保solver和matrix都有效 */
-    if (solver == NULL || solver->matrix == NULL) {
-        pardiso_cleanup(&solver);
-        pard_csr_free(&matrix);
-        return PARD_ERROR_INVALID_INPUT;
-    }
-    int n = solver->matrix->n;
+    /* 创建右端项并求解 */
     double *rhs = (double *)malloc(n * sizeof(double));
     double *sol = (double *)malloc(n * sizeof(double));
     
@@ -96,6 +127,7 @@ int run_benchmark(const char *matrix_file, pard_matrix_type_t mtype,
         if (rhs != NULL) free(rhs);
         if (sol != NULL) free(sol);
         pardiso_cleanup(&solver);
+        pard_csr_free(&matrix);
         return PARD_ERROR_MEMORY;
     }
     
@@ -113,20 +145,18 @@ int run_benchmark(const char *matrix_file, pard_matrix_type_t mtype,
         free(rhs);
         free(sol);
         pardiso_cleanup(&solver);
-        pard_csr_free(&matrix);  /* 释放matrix，因为pardiso_cleanup不再释放它 */
-        matrix = NULL;  /* 标记已清理，避免后续访问 */
+        pard_csr_free(&matrix);
         return err;
     }
     
-    /* 计算残差 - 使用solver->matrix（已经置换后的矩阵） */
+    /* 计算残差 */
     double max_residual = 0.0;
-    pard_csr_matrix_t *A = solver->matrix;  /* 使用solver中的矩阵引用 */
-    
-    if (A != NULL && A->row_ptr != NULL && A->col_idx != NULL && A->values != NULL) {
+    if (matrix != NULL && matrix->row_ptr != NULL && 
+        matrix->col_idx != NULL && matrix->values != NULL) {
         for (int i = 0; i < n; i++) {
             double sum = 0.0;
-            for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++) {
-                sum += A->values[j] * sol[A->col_idx[j]];
+            for (int j = matrix->row_ptr[i]; j < matrix->row_ptr[i + 1]; j++) {
+                sum += matrix->values[j] * sol[matrix->col_idx[j]];
             }
             double residual = fabs(rhs[i] - sum);
             if (residual > max_residual) {
@@ -135,27 +165,22 @@ int run_benchmark(const char *matrix_file, pard_matrix_type_t mtype,
         }
     }
     stats->max_residual = max_residual;
+    stats->total_time = stats->analysis_time + stats->factorization_time + stats->solve_time;
     
     if (rank == 0) {
         printf("\nPerformance Statistics:\n");
         printf("  Analysis time:      %.6f seconds\n", stats->analysis_time);
         printf("  Factorization time: %.6f seconds\n", stats->factorization_time);
         printf("  Solve time:         %.6f seconds\n", stats->solve_time);
-        printf("  Total time:         %.6f seconds\n", 
-               stats->analysis_time + stats->factorization_time + stats->solve_time);
+        printf("  Total time:         %.6f seconds\n", stats->total_time);
         printf("  Fill-in nnz:        %d\n", stats->fill_in_nnz);
         printf("  Max residual:       %.2e\n", stats->max_residual);
     }
     
     free(rhs);
     free(sol);
-    
-    /* 清理求解器（不释放matrix，因为matrix由benchmark管理） */
     pardiso_cleanup(&solver);
-    
-    /* 释放matrix（由benchmark管理） */
     pard_csr_free(&matrix);
-    matrix = NULL;  /* 标记已清理，避免后续访问 */
     
     return PARD_SUCCESS;
 }
@@ -163,15 +188,24 @@ int run_benchmark(const char *matrix_file, pard_matrix_type_t mtype,
 int main(int argc, char **argv) {
     MPI_Init(&argc, &argv);
     
-    int rank, size;
+    int rank;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &size);
     
     if (argc < 2) {
         if (rank == 0) {
-            printf("Usage: %s <matrix_file.mtx> [matrix_type] [use_mpi]\n", argv[0]);
-            printf("  matrix_type: 0=non-symmetric, 1=symmetric_posdef, -2=symmetric_indef\n");
-            printf("  use_mpi: 0=serial, 1=parallel\n");
+            printf("Usage: %s <matrix_size> [matrix_type] [num_cores]\n", argv[0]);
+            printf("  matrix_size: e.g., 500, 1000\n");
+            printf("  matrix_type: 11=non-symmetric (default)\n");
+            printf("  num_cores: 1, 2, 4 (default: 1)\n");
+        }
+        MPI_Finalize();
+        return 1;
+    }
+    
+    int n = atoi(argv[1]);
+    if (n <= 0) {
+        if (rank == 0) {
+            printf("Error: Invalid matrix size\n");
         }
         MPI_Finalize();
         return 1;
@@ -182,26 +216,23 @@ int main(int argc, char **argv) {
         mtype = (pard_matrix_type_t)atoi(argv[2]);
     }
     
-    int use_mpi = (size > 1) ? 1 : 0;
-    if (argc >= 4) {
-        use_mpi = atoi(argv[3]);
-    }
-    
     if (rank == 0) {
-        printf("=== PARD Benchmark ===\n");
-        printf("Matrix file: %s\n", argv[1]);
+        printf("=== PARD Performance Test ===\n");
+        printf("Matrix size: %dx%d\n", n, n);
         printf("Matrix type: %d\n", mtype);
-        printf("MPI processes: %d\n", use_mpi ? size : 1);
-        printf("\n");
     }
     
-    performance_stats_t stats;
-    int err = run_benchmark(argv[1], mtype, use_mpi, &stats);
+    perf_stats_t stats = {0};
+    int err = run_perf_test(n, mtype, &stats);
     
-    if (err != PARD_SUCCESS && rank == 0) {
-        printf("Benchmark failed with error: %d\n", err);
+    if (err != PARD_SUCCESS) {
+        if (rank == 0) {
+            printf("Error: %d\n", err);
+        }
+        MPI_Finalize();
+        return 1;
     }
     
     MPI_Finalize();
-    return (err == PARD_SUCCESS) ? 0 : 1;
+    return 0;
 }

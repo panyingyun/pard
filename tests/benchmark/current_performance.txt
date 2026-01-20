@@ -1,0 +1,43 @@
+==========================================
+PARD vs MUMPS Performance Collection
+==========================================
+
+
+=== Testing 500x500 with 1 cores ===
+PARD:
+Performance Statistics:
+  Analysis time:      0.000960 seconds
+  Factorization time: 0.120640 seconds
+  Solve time:         0.000027 seconds
+  Total time:         0.121627 seconds
+MUMPS:
+Performance Statistics:
+  Analysis time:      0.001122 seconds
+  Factorization time: 0.104716 seconds
+  Solve time:         0.024678 seconds
+  Total time:         0.130516 seconds
+  Ratio (MUMPS/PARD): 1.07x
+  ✓ PARD is FASTER!
+
+=== Testing 1000x1000 with 1 cores ===
+PARD:
+Performance Statistics:
+  Analysis time:      0.003711 seconds
+  Factorization time: 0.984789 seconds
+  Solve time:         0.000046 seconds
+  Total time:         0.988546 seconds
+MUMPS:
+Performance Statistics:
+  Analysis time:      0.002258 seconds
+  Factorization time: 0.114139 seconds
+  Solve time:         0.101861 seconds
+  Total time:         0.218258 seconds
+  Ratio (MUMPS/PARD): 0.22x
+  ✗ PARD needs optimization (0.22x slower)
+
+Results saved to: tests/benchmark/performance_results_20260120_074935.txt
+Matrix_Size Cores Solver Analysis Factor Solve Total
+500 1 PARD 0.000960 0.120640 0.000027 0.121627
+500 1 MUMPS 0.001122 0.104716 0.024678 0.130516
+1000 1 PARD 0.003711 0.984789 0.000046 0.988546
+1000 1 MUMPS 0.002258 0.114139 0.101861 0.218258

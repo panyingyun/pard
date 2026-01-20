@@ -4,6 +4,15 @@ project(pard VERSION 1.0.0 LANGUAGES C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
+# 优化选项：启用编译器优化
+if(CMAKE_BUILD_TYPE STREQUAL "")
+    set(CMAKE_BUILD_TYPE Release)
+endif()
+
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3 -march=native -ffast-math")
+endif()
+
 # 查找MPI
 find_package(MPI REQUIRED COMPONENTS C)
 
@@ -89,6 +98,14 @@ if(BUILD_TESTS)
     # 基准测试
     add_executable(benchmark tests/benchmark/benchmark.c)
     target_link_libraries(benchmark pard)
+    
+    # 简化的性能测试程序
+    add_executable(simple_perf_test tests/benchmark/simple_perf_test.c)
+    target_link_libraries(simple_perf_test pard m)
+    
+    # 使用集成测试矩阵创建逻辑的性能测试程序
+    add_executable(perf_test_with_create tests/benchmark/perf_test_with_create.c)
+    target_link_libraries(perf_test_with_create pard m)
     
     # MUMPS对比程序
     add_executable(mumps_compare tests/benchmark/mumps_compare.c)

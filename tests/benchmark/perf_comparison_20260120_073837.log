@@ -1,0 +1,18 @@
+==========================================
+PARD vs MUMPS Performance Comparison
+==========================================
+
+==========================================
+Matrix Size: 500x500
+==========================================
+
+--- Testing with 1 cores ---
+PARD:
+  Analysis: 0.000935s, Factor: 0.119228s, Solve: 0.000026s, Total: 0.120189s
+MUMPS:
+  Total: 0.014370s
+
+  ✗ PARD is 0.12x SLOWER than MUMPS (needs optimization)
+
+--- Testing with 2 cores ---
+PARD:

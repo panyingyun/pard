@@ -128,10 +128,16 @@ int pard_matrix_read_mtx(pard_csr_matrix_t **matrix, const char *filename) {
     
     for (int i = 0; i < count; i++) {
         int row = entries[i].row;
-        int pos = (*matrix)->row_ptr[row] + row_counts[row];
-        (*matrix)->col_idx[pos] = entries[i].col;
-        (*matrix)->values[pos] = entries[i].val;
-        row_counts[row]++;
+        /* 确保row在有效范围内 */
+        if (row >= 0 && row < n) {
+            int pos = (*matrix)->row_ptr[row] + row_counts[row];
+            /* 确保pos在有效范围内 */
+            if (pos >= 0 && pos < (*matrix)->nnz) {
+                (*matrix)->col_idx[pos] = entries[i].col;
+                (*matrix)->values[pos] = entries[i].val;
+                row_counts[row]++;
+            }
+        }
     }
     
     free(entries);

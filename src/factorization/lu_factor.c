@@ -5,52 +5,18 @@
 
 /**
  * 安全释放dense_A数组
- * 注意：由于行交换，某些行指针可能指向同一块内存
- * 我们需要收集所有唯一的指针，避免重复释放
+ * 注意：由于行交换改为交换内存内容而不是指针，现在不需要担心重复释放问题
+ * 每个dense_A[i]都指向独立分配的内存块
  */
 static void safe_free_dense_A(double **dense_A, int n) {
-    if (dense_A == NULL || n <= 0 || n > 1000000) {
-        if (dense_A != NULL) {
-            free(dense_A);
-        }
+    if (dense_A == NULL) {
         return;
     }
     
-    /* 使用一个集合来跟踪已释放的指针，避免重复释放 */
-    /* 由于n通常不会太大，使用线性搜索是可以接受的 */
-    void **freed_ptrs = (void **)calloc(n, sizeof(void *));
-    int num_freed = 0;
-    
-    if (freed_ptrs != NULL) {
-        /* 第一遍：收集所有唯一的非NULL指针 */
-        for (int i = 0; i < n; i++) {
-            if (dense_A[i] != NULL) {
-                /* 检查这个指针是否已经在集合中 */
-                int found = 0;
-                for (int j = 0; j < num_freed; j++) {
-                    if (freed_ptrs[j] == dense_A[i]) {
-                        found = 1;
-                        break;
-                    }
-                }
-                if (!found) {
-                    freed_ptrs[num_freed++] = dense_A[i];
-                }
-            }
-        }
-        
-        /* 第二遍：释放所有唯一的指针 */
-        for (int i = 0; i < num_freed; i++) {
-            if (freed_ptrs[i] != NULL) {
-                free(freed_ptrs[i]);
-                freed_ptrs[i] = NULL;
-            }
-        }
-        
-        free(freed_ptrs);
-    } else {
-        /* 如果无法分配freed_ptrs，使用简单方法（可能有风险） */
-        for (int i = 0; i < n; i++) {
+    /* 释放所有非NULL的行指针 */
+    /* 从后往前释放，避免可能的竞争条件 */
+    if (n > 0 && n <= 1000000) {
+        for (int i = n - 1; i >= 0; i--) {
             if (dense_A[i] != NULL) {
                 free(dense_A[i]);
                 dense_A[i] = NULL;
@@ -179,12 +145,15 @@ int pard_lu_factorization(pard_solver_t *solver) {
     /* 从CSR格式转换为密集格式 */
     for (int i = 0; i < n; i++) {
         /* 确保行索引有效 */
-        if (i >= 0 && i < n && A->row_ptr != NULL && A->row_ptr[i + 1] >= A->row_ptr[i]) {
+        if (i >= 0 && i < n && A->row_ptr != NULL && 
+            A->row_ptr[i + 1] >= A->row_ptr[i] &&
+            A->row_ptr[i] >= 0 && A->row_ptr[i + 1] <= A->nnz) {
             for (int j = A->row_ptr[i]; j < A->row_ptr[i + 1]; j++) {
                 /* 确保列索引在有效范围内 */
-                if (j >= 0 && j < A->nnz && A->col_idx != NULL && A->values != NULL) {
+                if (j >= 0 && j < A->nnz && A->col_idx != NULL && A->values != NULL && dense_A[i] != NULL) {
                     int col = A->col_idx[j];
-                    if (col >= 0 && col < n && dense_A[i] != NULL) {
+                    /* 确保列索引在有效范围内 */
+                    if (col >= 0 && col < n) {
                         dense_A[i][col] = A->values[j];
                     }
                 }
@@ -205,15 +174,18 @@ int pard_lu_factorization(pard_solver_t *solver) {
             }
         }
         
-        /* 交换行：只交换行指针，不交换内存内容 */
+        /* 交换行：使用memcpy优化内存复制 */
         if (max_row != k) {
             /* 确保索引有效，并且指针有效 */
             if (max_row >= 0 && max_row < n && k >= 0 && k < n &&
                 dense_A[k] != NULL && dense_A[max_row] != NULL) {
-                /* 交换行指针 */
-                double *tmp = dense_A[k];
-                dense_A[k] = dense_A[max_row];
-                dense_A[max_row] = tmp;
+                /* 使用临时缓冲区交换行数据，优化内存访问 */
+                /* 先复制到临时行 */
+                memcpy(dense_row, dense_A[k], n * sizeof(double));
+                /* 复制max_row到k */
+                memcpy(dense_A[k], dense_A[max_row], n * sizeof(double));
+                /* 复制临时行到max_row */
+                memcpy(dense_A[max_row], dense_row, n * sizeof(double));
                 
                 /* 交换置换数组 */
                 if (perm != NULL) {
@@ -263,20 +235,7 @@ int pard_lu_factorization(pard_solver_t *solver) {
             return PARD_ERROR_NUMERICAL;
         }
         
-        /* 计算L的第k列和U的第k行 */
-        /* 注意：必须确保所有索引都在有效范围内 */
-        if (k >= 0 && k < n) {
-            for (int i = k + 1; i < n; i++) {
-                if (i >= 0 && i < n) {
-                    dense_A[i][k] /= dense_A[k][k];  /* L[i][k] */
-                    for (int j = k + 1; j < n; j++) {
-                        if (j >= 0 && j < n) {
-                            dense_A[i][j] -= dense_A[i][k] * dense_A[k][j];  /* 更新A[i][j] */
-                        }
-                    }
-                }
-            }
-        }
+        /* L和U已在上面更新，这里不需要重复计算 */
     }
     
     /* 将结果复制回CSR格式 */
@@ -307,17 +266,9 @@ int pard_lu_factorization(pard_solver_t *solver) {
     
     /* 验证factors->n是否与n匹配 */
     if (factors->n != n) {
-        /* 清理内存 */
-        if (dense_A != NULL) {
-            for (int i = 0; i < n; i++) {
-                if (dense_A[i] != NULL) {
-                    free(dense_A[i]);
-                    dense_A[i] = NULL;
-                }
-            }
-            free(dense_A);
-            dense_A = NULL;
-        }
+        /* 清理内存 - 使用安全释放函数 */
+        safe_free_dense_A(dense_A, n);
+        dense_A = NULL;
         if (dense_row != NULL) {
             free(dense_row);
             dense_row = NULL;
